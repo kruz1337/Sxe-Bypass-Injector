@@ -2,6 +2,7 @@
 #include <TlHelp32.h>
 #include <fstream>
 #include <iostream>
+#include <Psapi.h>
 
 void createAscii()
 {
@@ -11,8 +12,7 @@ void createAscii()
                               / __ \___  ____ ___  _____  _____/ /| |/ /   / __ \___ _   __  
                              / /_/ / _ \/ __ `/ / / / _ \/ ___/ __|   /   / / / / _ | | / /  
                             / _, _/  __/ /_/ / /_/ /  __(__  / /_/   |   / /_/ /  __| |/ _    
-                           /_/ |_|\___/\__, /\__,_/\___/____/\__/_/|_|  /_____/\___/|___(_)       
-						github.com/kruz1337  
+                           /_/ |_|\___/\__, /\__,_/\___/____/\__/_/|_|  /_____/\___/|___(_)         
 )" << '\n';
 	SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 94);
 }
@@ -87,22 +87,37 @@ HWND GetWindowByProcessId(DWORD processId)
 	return 0;
 }
 
-bool CheckModules(DWORD processId)
+DWORD GetModule(DWORD processId, const char* name)
 {
-	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, processId);
-	if (hSnapshot != INVALID_HANDLE_VALUE)
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPALL, processId);
+	MODULEENTRY32 entry32;
+	entry32.dwSize = sizeof(MODULEENTRY32);
+	do
 	{
-		MODULEENTRY32 me32;
-		me32.dwSize = sizeof(MODULEENTRY32);
+		if (!strcmp(entry32.szModule, name))
+		{
+			CloseHandle(hSnapshot);
+			return (DWORD)entry32.modBaseAddr;
+		}
+	} while (Module32Next(hSnapshot, &entry32));
 
-		do 
-		{ 
-			if (std::string(me32.szModule).find("sxe.dll") != std::string::npos)
-			{
-				return true;
-			}
-		} 
-		while (Module32Next(hSnapshot, &me32));
+	return 0;
+}
+
+bool IsSxeInjectedWithoutPEB()
+{
+	char sxePath[MAX_PATH];
+	HANDLE sxeHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, GetProcessIdByName("Injected.exe"));
+
+	if (sxeHandle && GetModuleFileNameEx(sxeHandle, NULL, sxePath, MAX_PATH) != 0)
+	{
+		std::string sxePath_str = sxePath;
+		sxePath_str.replace(sxePath_str.find("\\Injected.exe"), sxePath_str.length(), "");
+		FILE* dllFile = fopen((sxePath_str + "\\sXe.dll").c_str(), "a+");
+		if (dllFile == NULL)
+		{
+			return true;
+		}
 	}
 
 	return false;
@@ -231,6 +246,7 @@ bool Inject(HANDLE hProcess, const char* dllFilePath)
 	}
 
 	CloseHandle(hThread);
+	return true;
 }
 
 int main(int argc, char** argv)
@@ -311,6 +327,7 @@ int main(int argc, char** argv)
 		return false;
 	}
 
+	DWORD exitCode;
 	DWORD processId;
 	HANDLE hProcess;
 	HWND hWindow;
@@ -325,10 +342,11 @@ int main(int argc, char** argv)
 			hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
 			if (hProcess)
 			{
-				DWORD exitCode;
 				if (GetExitCodeProcess(hProcess, &exitCode))
 				{
-					if (CheckModules(processId))
+					if (IsSxeInjectedWithoutPEB()
+						&& GetModule(processId, "hw.dll")
+						&& GetModule(processId, "GameUI.dll"))
 					{
 						hWindow = GetWindowByProcessId(processId);
 						if (hWindow)
@@ -343,20 +361,27 @@ int main(int argc, char** argv)
 		}
 	}
 
-	Sleep(500);
+	Sleep(2000);
 
-	SetWindowText(hWindow, "github.com/kruz1337");
+	SetWindowTextA(hWindow, "github.com/kruz1337");
 
 	clearConsole();
-	if (Inject(hProcess, dllFilePath))
+	if (exitCode == 0xC0000005)
 	{
-		printf("[*] DLL file succesfully injected into game.\n");
-		printf("[*] Process ID: %i\n", processId);
-		printf("[*] Window Address: %X\n", hWindow);
+		printf("[-] Process crashed.\n");
 	}
 	else
 	{
-		printf("[-] Sxe Bypass injection failed.\n");
+		if (Inject(hProcess, dllFilePath))
+		{
+			printf("[*] DLL file succesfully injected into game.\n");
+			printf("[*] Process ID: %X\n", processId);
+			printf("[*] Window Address: %p\n", hWindow);
+		}
+		else
+		{
+			printf("[-] Sxe Bypass injection failed.\n");
+		}
 	}
 	clearColor();
 
