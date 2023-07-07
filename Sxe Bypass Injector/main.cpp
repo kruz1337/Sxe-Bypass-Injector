@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <Psapi.h>
+#include <string>
 
 void createAscii()
 {
@@ -106,12 +107,14 @@ DWORD GetModule(DWORD processId, const char* name)
 
 bool IsSxeInjectedWithoutPEB()
 {
-	char sxePath[MAX_PATH];
+	wchar_t sxePath[MAX_PATH] = { 0 };
 	HANDLE sxeHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, GetProcessIdByName("Injected.exe"));
 
-	if (sxeHandle && GetModuleFileNameEx(sxeHandle, NULL, sxePath, MAX_PATH) != 0)
+	if (sxeHandle && GetModuleFileNameExW(sxeHandle, NULL, sxePath, sizeof(sxePath) / sizeof(sxePath[0])) > 0)
 	{
-		std::string sxePath_str = sxePath;
+		std::wstring sxePath_strw(sxePath);
+		std::string sxePath_str(sxePath_strw.begin(), sxePath_strw.end());
+
 		sxePath_str.replace(sxePath_str.find("\\Injected.exe"), sxePath_str.length(), "");
 		FILE* dllFile = fopen((sxePath_str + "\\sXe.dll").c_str(), "a+");
 		if (dllFile == NULL)
@@ -263,7 +266,7 @@ int main(int argc, char** argv)
 	else
 	{
 		printf("\n[*] DLL File Path: \n> ");
-		std::cin >> dll;
+		std::getline(std::cin, dll);
 	}
 
 	clearConsole();
@@ -280,6 +283,7 @@ int main(int argc, char** argv)
 		system("PAUSE");
 		return false;
 	}
+
 	if (fDll.fail())
 	{
 		printf("[-] Dll file open failed. (0x%X)\n", (DWORD)fDll.rdstate());
